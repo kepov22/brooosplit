@@ -1,4 +1,4 @@
-const CACHE_NAME = "brosplit-v1";
+const CACHE_NAME = "brosplit-v2";
 const ASSETS = [
   "./",
   "./index.html",

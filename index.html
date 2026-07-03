@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>BroSplit</title>
+  <title>BroSplit v2</title>
   <link rel="manifest" href="manifest.json">
   <link rel="stylesheet" href="styles.css" />
   <meta name="theme-color" content="#111827">
@@ -13,17 +13,16 @@
     <header>
       <div>
         <h1>BroSplit</h1>
-        <p>Считай долги без ада в чате</p>
+        <p>Кто кому должен — без суда и понятых</p>
       </div>
       <button id="resetBtn" class="ghost">Сброс</button>
     </header>
 
     <section class="card">
       <h2>1. Участники</h2>
-      <div class="row">
-        <input id="personInput" placeholder="Имя: Рома, Паша, Артем..." />
-        <button id="addPersonBtn">Добавить</button>
-      </div>
+      <label>Массовое добавление</label>
+      <textarea id="peopleInput" placeholder="Рома, Паша, Артем&#10;или каждый с новой строки"></textarea>
+      <button id="addPeopleBtn" class="full">Добавить участников</button>
       <div id="peopleList" class="chips"></div>
     </section>
 
@@ -33,18 +32,24 @@
       <label>Название</label>
       <input id="expenseTitle" placeholder="Мак, ресторан, травка, нос..." />
 
-      <label>Сумма</label>
+      <label>Общая сумма расхода</label>
       <input id="expenseAmount" type="number" placeholder="3500" />
 
       <label>Кто оплатил</label>
-      <select id="payerSelect"></select>
+      <p class="hint">Можно выбрать одного или нескольких плательщиков. Например: Рома 5300, Артем 2700.</p>
+      <div id="payersBox" class="money-list"></div>
 
       <label>Кто участвовал</label>
+      <p class="hint">По умолчанию выбраны все. Убирай тех, кто не участвовал в конкретном расходе.</p>
+      <div class="mini-actions">
+        <button id="selectAllBtn" class="small secondary">Выбрать всех</button>
+        <button id="clearAllBtn" class="small ghost">Снять всех</button>
+      </div>
       <div id="participantsBox" class="checklist"></div>
 
       <label>Тип деления</label>
       <select id="splitType">
-        <option value="equal">Поровну</option>
+        <option value="equal">Поровну между выбранными</option>
         <option value="custom">Своя сумма каждому</option>
       </select>
 

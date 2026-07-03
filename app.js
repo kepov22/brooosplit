@@ -1,4 +1,4 @@
-const state = JSON.parse(localStorage.getItem("brosplit_state")) || {
+const state = JSON.parse(localStorage.getItem("brosplit_state_v2")) || {
   people: [],
   expenses: []
 };
@@ -6,40 +6,81 @@ const state = JSON.parse(localStorage.getItem("brosplit_state")) || {
 const $ = (id) => document.getElementById(id);
 
 function save() {
-  localStorage.setItem("brosplit_state", JSON.stringify(state));
+  localStorage.setItem("brosplit_state_v2", JSON.stringify(state));
 }
 
 function money(n) {
   return Math.round(n).toLocaleString("ru-RU") + " ₽";
 }
 
-function addPerson(name) {
-  const clean = name.trim();
-  if (!clean) return;
-  if (state.people.includes(clean)) return alert("Такой участник уже есть");
-  state.people.push(clean);
+function parsePeople(text) {
+  return text
+    .split(/[\n,;]+/g)
+    .map(x => x.trim())
+    .filter(Boolean);
+}
+
+function addPeople(text) {
+  const names = parsePeople(text);
+  if (!names.length) return alert("Впиши хотя бы одного участника");
+
+  let added = 0;
+  for (const name of names) {
+    if (!state.people.includes(name)) {
+      state.people.push(name);
+      added++;
+    }
+  }
+
+  $("peopleInput").value = "";
   save();
   render();
+
+  if (!added) alert("Новых участников нет — все уже добавлены");
 }
 
 function removePerson(name) {
   state.people = state.people.filter(p => p !== name);
-  state.expenses = state.expenses.filter(e => e.payer !== name && !e.participants.includes(name));
+  state.expenses = state.expenses.filter(e => {
+    const payerNames = Object.keys(e.payers || {});
+    return !payerNames.includes(name) && !e.participants.includes(name);
+  });
   save();
   render();
+}
+
+function getSelectedParticipants() {
+  return [...document.querySelectorAll(".participantCheck:checked")].map(i => i.value);
+}
+
+function getPayers() {
+  const payers = {};
+  const rows = [...document.querySelectorAll(".payerCheck:checked")];
+
+  for (const checkbox of rows) {
+    const person = checkbox.value;
+    const input = document.querySelector(`[data-paid="${CSS.escape(person)}"]`);
+    const amount = Number(input?.value || 0);
+    if (amount > 0) payers[person] = amount;
+  }
+
+  return payers;
 }
 
 function addExpense() {
   const title = $("expenseTitle").value.trim();
   const amount = Number($("expenseAmount").value);
-  const payer = $("payerSelect").value;
   const splitType = $("splitType").value;
-
-  const participants = [...document.querySelectorAll(".participantCheck:checked")].map(i => i.value);
+  const participants = getSelectedParticipants();
+  const payers = getPayers();
+  const paidTotal = Object.values(payers).reduce((a, b) => a + b, 0);
 
   if (!title) return alert("Название расхода забыли. Бухгалтер грустит.");
   if (!amount || amount <= 0) return alert("Сумма должна быть больше нуля");
-  if (!payer) return alert("Выбери, кто оплатил");
+  if (!Object.keys(payers).length) return alert("Выбери, кто оплатил, и впиши суммы");
+  if (Math.round(paidTotal) !== Math.round(amount)) {
+    return alert(`Плательщики внесли ${money(paidTotal)}, а расход ${money(amount)}. Суммы должны совпадать.`);
+  }
   if (!participants.length) return alert("Выбери участников расхода");
 
   let shares = {};
@@ -50,13 +91,14 @@ function addExpense() {
   } else {
     let total = 0;
     participants.forEach(p => {
-      const val = Number(document.querySelector(`[data-share="${p}"]`)?.value || 0);
+      const input = document.querySelector(`[data-share="${CSS.escape(p)}"]`);
+      const val = Number(input?.value || 0);
       shares[p] = val;
       total += val;
     });
 
     if (Math.round(total) !== Math.round(amount)) {
-      return alert(`Суммы по людям дают ${money(total)}, а расход ${money(amount)}. Не сходится.`);
+      return alert(`Доли участников дают ${money(total)}, а расход ${money(amount)}. Не сходится.`);
     }
   }
 
@@ -64,7 +106,7 @@ function addExpense() {
     id: Date.now(),
     title,
     amount,
-    payer,
+    payers,
     participants,
     shares,
     splitType
@@ -87,9 +129,11 @@ function calculateDebts() {
   state.people.forEach(p => balances[p] = 0);
 
   for (const e of state.expenses) {
-    balances[e.payer] += e.amount;
-    for (const [person, share] of Object.entries(e.shares)) {
-      balances[person] -= share;
+    for (const [person, paid] of Object.entries(e.payers || {})) {
+      balances[person] = (balances[person] || 0) + paid;
+    }
+    for (const [person, share] of Object.entries(e.shares || {})) {
+      balances[person] = (balances[person] || 0) - share;
     }
   }
 
@@ -102,18 +146,18 @@ function calculateDebts() {
     if (rounded > 0) creditors.push({ person, amount: rounded });
   }
 
+  debtors.sort((a,b) => b.amount - a.amount);
+  creditors.sort((a,b) => b.amount - a.amount);
+
   const settlements = [];
   let i = 0, j = 0;
 
   while (i < debtors.length && j < creditors.length) {
     const amount = Math.min(debtors[i].amount, creditors[j].amount);
     if (amount > 0) {
-      settlements.push({
-        from: debtors[i].person,
-        to: creditors[j].person,
-        amount
-      });
+      settlements.push({ from: debtors[i].person, to: creditors[j].person, amount });
     }
+
     debtors[i].amount -= amount;
     creditors[j].amount -= amount;
 
@@ -126,24 +170,34 @@ function calculateDebts() {
 
 function renderPeople() {
   $("peopleList").innerHTML = state.people.length
-    ? state.people.map(p => `<div class="chip">${p}<button class="danger" onclick="removePerson('${p}')">×</button></div>`).join("")
-    : `<div class="empty">Пока никого нет. Добавь участников.</div>`;
+    ? state.people.map(p => `<div class="chip">${p}<button class="danger" onclick="removePerson('${escapeHtml(p)}')">×</button></div>`).join("")
+    : `<div class="empty">Пока никого нет. Впиши всех пачкой через запятую или с новой строки.</div>`;
 
-  $("payerSelect").innerHTML = state.people.map(p => `<option value="${p}">${p}</option>`).join("");
+  $("payersBox").innerHTML = state.people.length
+    ? state.people.map(p => `
+      <label class="money-row">
+        <input type="checkbox" class="payerCheck" value="${escapeHtml(p)}">
+        <span>${escapeHtml(p)}</span>
+        <input type="number" data-paid="${escapeHtml(p)}" placeholder="Сколько заплатил">
+      </label>
+    `).join("")
+    : `<div class="empty">Сначала добавь участников.</div>`;
 
-  $("participantsBox").innerHTML = state.people.map(p => `
-    <label class="check">
-      <input type="checkbox" class="participantCheck" value="${p}" checked onchange="renderCustomShares()">
-      ${p}
-    </label>
-  `).join("");
+  $("participantsBox").innerHTML = state.people.length
+    ? state.people.map(p => `
+      <label class="check">
+        <input type="checkbox" class="participantCheck" value="${escapeHtml(p)}" checked onchange="renderCustomShares()">
+        ${escapeHtml(p)}
+      </label>
+    `).join("")
+    : `<div class="empty">Сначала добавь участников.</div>`;
 
   renderCustomShares();
 }
 
 function renderCustomShares() {
   const splitType = $("splitType").value;
-  const selected = [...document.querySelectorAll(".participantCheck:checked")].map(i => i.value);
+  const selected = getSelectedParticipants();
   const box = $("customShares");
 
   if (splitType !== "custom") {
@@ -153,36 +207,43 @@ function renderCustomShares() {
   }
 
   box.classList.remove("hidden");
-  box.innerHTML = selected.map(p => `
-    <div class="custom-row">
-      <span>${p}</span>
-      <input type="number" data-share="${p}" placeholder="0">
-    </div>
-  `).join("");
+  box.innerHTML = `
+    <label>Сколько должен каждый участник</label>
+    ${selected.map(p => `
+      <div class="custom-row">
+        <span>${escapeHtml(p)}</span>
+        <input type="number" data-share="${escapeHtml(p)}" placeholder="0">
+      </div>
+    `).join("")}
+  `;
 }
 
 function renderExpenses() {
   $("expensesList").innerHTML = state.expenses.length
-    ? state.expenses.map(e => `
-      <div class="expense">
-        <div class="expense-top">
-          <div>
-            <strong>${e.title} — ${money(e.amount)}</strong>
-            <small>Платил: ${e.payer}</small>
-            <small>Участники: ${e.participants.join(", ")}</small>
-            <small>${Object.entries(e.shares).map(([p, s]) => `${p}: ${money(s)}`).join(" · ")}</small>
+    ? state.expenses.map(e => {
+      const payersText = Object.entries(e.payers || {}).map(([p, a]) => `${escapeHtml(p)}: ${money(a)}`).join(" · ");
+      const sharesText = Object.entries(e.shares || {}).map(([p, s]) => `${escapeHtml(p)}: ${money(s)}`).join(" · ");
+      return `
+        <div class="expense">
+          <div class="expense-top">
+            <div>
+              <strong>${escapeHtml(e.title)} — ${money(e.amount)}</strong>
+              <small>Платили: ${payersText}</small>
+              <small>Участники: ${e.participants.map(escapeHtml).join(", ")}</small>
+              <small>Доли: ${sharesText}</small>
+            </div>
+            <button class="danger" onclick="deleteExpense(${e.id})">Удалить</button>
           </div>
-          <button class="danger" onclick="deleteExpense(${e.id})">Удалить</button>
         </div>
-      </div>
-    `).join("")
+      `;
+    }).join("")
     : `<div class="empty">Операций пока нет.</div>`;
 }
 
 function renderSettlements() {
   const settlements = calculateDebts();
   $("settlementsList").innerHTML = settlements.length
-    ? settlements.map(s => `<div class="settlement">${s.from} → ${s.to}: ${money(s.amount)}</div>`).join("")
+    ? settlements.map(s => `<div class="settlement">${escapeHtml(s.from)} → ${escapeHtml(s.to)}: ${money(s.amount)}</div>`).join("")
     : `<div class="empty">Пока никто никому не должен. Редкий мирный момент.</div>`;
 }
 
@@ -196,25 +257,41 @@ function copySummary() {
   alert("Скопировано");
 }
 
+function selectAllParticipants(checked) {
+  document.querySelectorAll(".participantCheck").forEach(i => i.checked = checked);
+  renderCustomShares();
+}
+
+function escapeHtml(str) {
+  return String(str).replace(/[&<>"']/g, m => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#039;"
+  }[m]));
+}
+
 function render() {
   renderPeople();
   renderExpenses();
   renderSettlements();
 }
 
-$("addPersonBtn").onclick = () => addPerson($("personInput").value);
-$("personInput").addEventListener("keydown", (e) => {
-  if (e.key === "Enter") {
-    addPerson($("personInput").value);
-    $("personInput").value = "";
+$("addPeopleBtn").onclick = () => addPeople($("peopleInput").value);
+$("peopleInput").addEventListener("keydown", (e) => {
+  if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+    addPeople($("peopleInput").value);
   }
 });
 $("addExpenseBtn").onclick = addExpense;
 $("copyBtn").onclick = copySummary;
 $("splitType").onchange = renderCustomShares;
+$("selectAllBtn").onclick = () => selectAllParticipants(true);
+$("clearAllBtn").onclick = () => selectAllParticipants(false);
 $("resetBtn").onclick = () => {
   if (confirm("Точно все стереть?")) {
-    localStorage.removeItem("brosplit_state");
+    localStorage.removeItem("brosplit_state_v2");
     location.reload();
   }
 };

@@ -6,6 +6,7 @@
   --muted: #9ca3af;
   --border: #263244;
   --accent: #22c55e;
+  --blue: #60a5fa;
   --danger: #ef4444;
 }
 
@@ -19,7 +20,7 @@ body {
 }
 
 .app {
-  width: min(760px, 100%);
+  width: min(820px, 100%);
   margin: 0 auto;
   padding: 16px;
 }
@@ -29,6 +30,7 @@ header {
   justify-content: space-between;
   align-items: center;
   margin: 12px 0 20px;
+  gap: 12px;
 }
 
 h1, h2, p { margin: 0; }
@@ -36,6 +38,11 @@ h1, h2, p { margin: 0; }
 h1 { font-size: 32px; }
 h2 { font-size: 20px; margin-bottom: 14px; }
 p { color: var(--muted); margin-top: 4px; }
+
+.hint {
+  font-size: 13px;
+  margin: -2px 0 8px;
+}
 
 .card {
   background: rgba(17, 24, 39, 0.92);
@@ -46,12 +53,7 @@ p { color: var(--muted); margin-top: 4px; }
   box-shadow: 0 10px 30px rgba(0,0,0,.25);
 }
 
-.row {
-  display: flex;
-  gap: 8px;
-}
-
-input, select, button {
+input, select, button, textarea {
   width: 100%;
   border-radius: 12px;
   border: 1px solid var(--border);
@@ -59,7 +61,12 @@ input, select, button {
   font-size: 16px;
 }
 
-input, select {
+textarea {
+  min-height: 92px;
+  resize: vertical;
+}
+
+input, select, textarea {
   background: var(--card2);
   color: var(--text);
   margin-bottom: 10px;
@@ -88,7 +95,7 @@ button.ghost {
 }
 
 button.secondary {
-  background: #60a5fa;
+  background: var(--blue);
   color: #082f49;
 }
 
@@ -98,6 +105,12 @@ button.danger {
   border: 1px solid rgba(239,68,68,.5);
   width: auto;
   padding: 8px 10px;
+}
+
+button.small {
+  width: auto;
+  padding: 9px 10px;
+  font-size: 13px;
 }
 
 .full { margin-top: 12px; }
@@ -119,24 +132,47 @@ button.danger {
   gap: 8px;
 }
 
-.checklist {
+.checklist, .money-list {
   display: grid;
   gap: 8px;
 }
 
-.check {
+.check, .money-row {
   background: var(--card2);
   border: 1px solid var(--border);
   border-radius: 12px;
   padding: 10px;
-  display: flex;
+  display: grid;
   gap: 8px;
   align-items: center;
 }
 
-.check input {
+.check {
+  grid-template-columns: auto 1fr;
+}
+
+.check input[type="checkbox"] {
   width: auto;
   margin: 0;
+}
+
+.money-row {
+  grid-template-columns: auto 1fr 150px;
+}
+
+.money-row input[type="checkbox"] {
+  width: auto;
+  margin: 0;
+}
+
+.money-row input[type="number"] {
+  margin: 0;
+}
+
+.mini-actions {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 8px;
 }
 
 .list {
@@ -158,7 +194,7 @@ button.danger {
 }
 
 .expense strong { font-size: 17px; }
-.expense small { color: var(--muted); display: block; margin-top: 4px; }
+.expense small { color: var(--muted); display: block; margin-top: 4px; line-height: 1.35; }
 
 .settlements {
   display: grid;
@@ -183,7 +219,20 @@ button.danger {
 
 .custom-row {
   display: grid;
-  grid-template-columns: 1fr 130px;
+  grid-template-columns: 1fr 150px;
   gap: 8px;
   align-items: center;
+  margin-bottom: 8px;
+}
+
+@media (max-width: 560px) {
+  .money-row {
+    grid-template-columns: auto 1fr;
+  }
+  .money-row input[type="number"] {
+    grid-column: 1 / -1;
+  }
+  .custom-row {
+    grid-template-columns: 1fr;
+  }
 }
