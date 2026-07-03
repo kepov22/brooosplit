@@ -2,23 +2,43 @@
 <html lang="ru">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>BroSplit v3</title>
-  <link rel="manifest" href="manifest.json">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>BroSplit</title>
+  <meta name="theme-color" content="#050509" />
+  <link rel="manifest" href="manifest.json" />
   <link rel="stylesheet" href="styles.css" />
-  <meta name="theme-color" content="#0f172a">
 </head>
 <body>
-  <div class="app">
-    <header class="topbar">
-      <div>
-        <h1>BroSplit</h1>
-        <p id="subtitle">Анти-Паша-машина v3</p>
+  <div class="phone-shell">
+    <header class="hero">
+      <div class="hero-bg">
+        <div class="sun"></div><div class="grid"></div><div class="beer">🍺</div><div class="smoke"></div>
       </div>
-      <button id="resetBtn" class="ghost danger-text">Сброс</button>
+      <div class="hero-top">
+        <div>
+          <h1>BRO<span>$</span>PLIT</h1>
+          <p>Кто кому должен — без суда и понятых</p>
+        </div>
+        <button id="resetBtn" class="icon-btn">⚙</button>
+      </div>
+      <button id="newEventBtn" class="acid-btn big">+ Новое мероприятие</button>
     </header>
 
-    <main id="appRoot"></main>
+    <main id="app"></main>
+
+    <nav class="bottom-nav">
+      <button class="nav-item active" data-view="events"><span>🌴</span><small>Мероприятия</small></button>
+      <button class="nav-item" data-view="expenses"><span>🧾</span><small>Расходы</small></button>
+      <button class="nav-item" data-view="summary"><span>💀</span><small>Итоги</small></button>
+      <button class="nav-item" data-view="settings"><span>⚙</span><small>Настройки</small></button>
+    </nav>
+  </div>
+
+  <div id="modal" class="modal hidden">
+    <div class="modal-card">
+      <button id="closeModalBtn" class="close-btn">×</button>
+      <div id="modalBody"></div>
+    </div>
   </div>
 
   <script src="app.js"></script>

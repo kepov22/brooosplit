@@ -3,8 +3,8 @@
   "short_name": "BroSplit",
   "start_url": "./index.html",
   "display": "standalone",
-  "background_color": "#020617",
-  "theme_color": "#0f172a",
+  "background_color": "#050509",
+  "theme_color": "#050509",
   "icons": [
     {
       "src": "icon.svg",
