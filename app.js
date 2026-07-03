@@ -1,141 +1,266 @@
-const state = JSON.parse(localStorage.getItem("brosplit_state_v2")) || {
-  people: [],
-  expenses: []
+const STORAGE_KEY = "brosplit_state_v3";
+
+const defaultState = {
+  events: [],
+  currentEventId: null,
+  screen: "events",
+  activeTab: "expenses"
 };
 
-const $ = (id) => document.getElementById(id);
+let state = JSON.parse(localStorage.getItem(STORAGE_KEY)) || defaultState;
+
+const $root = document.getElementById("appRoot");
+
+function uid() {
+  return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+}
 
 function save() {
-  localStorage.setItem("brosplit_state_v2", JSON.stringify(state));
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
 }
 
 function money(n) {
-  return Math.round(n).toLocaleString("ru-RU") + " ₽";
+  return Math.round(Number(n || 0)).toLocaleString("ru-RU") + " ₽";
+}
+
+function escapeHtml(str) {
+  return String(str ?? "").replace(/[&<>"']/g, m => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#039;"
+  }[m]));
 }
 
 function parsePeople(text) {
-  return text
-    .split(/[\n,;]+/g)
-    .map(x => x.trim())
-    .filter(Boolean);
+  return text.split(/[\n,;]+/g).map(x => x.trim()).filter(Boolean);
 }
 
-function addPeople(text) {
-  const names = parsePeople(text);
-  if (!names.length) return alert("Впиши хотя бы одного участника");
+function getCurrentEvent() {
+  return state.events.find(e => e.id === state.currentEventId);
+}
 
-  let added = 0;
-  for (const name of names) {
-    if (!state.people.includes(name)) {
-      state.people.push(name);
-      added++;
-    }
-  }
-
-  $("peopleInput").value = "";
+function goEvents() {
+  state.screen = "events";
+  state.currentEventId = null;
   save();
   render();
+}
 
-  if (!added) alert("Новых участников нет — все уже добавлены");
+function openEvent(id) {
+  state.currentEventId = id;
+  state.screen = "event";
+  state.activeTab = "expenses";
+  save();
+  render();
+}
+
+function createEvent() {
+  const title = document.getElementById("eventTitle").value.trim();
+  const peopleText = document.getElementById("eventPeople").value.trim();
+  if (!title) return alert("Название мероприятия нужно. Иначе это не продукт, а туман.");
+
+  const people = [...new Set(parsePeople(peopleText))];
+
+  const event = {
+    id: uid(),
+    title,
+    people,
+    expenses: []
+  };
+
+  state.events.unshift(event);
+  state.currentEventId = event.id;
+  state.screen = "event";
+  state.activeTab = "people";
+  save();
+  render();
+}
+
+function deleteEvent(id) {
+  if (!confirm("Удалить мероприятие полностью?")) return;
+  state.events = state.events.filter(e => e.id !== id);
+  if (state.currentEventId === id) state.currentEventId = null;
+  state.screen = "events";
+  save();
+  render();
+}
+
+function addPeopleToCurrent() {
+  const event = getCurrentEvent();
+  const text = document.getElementById("addPeopleText").value;
+  const names = parsePeople(text);
+  if (!names.length) return alert("Впиши участников");
+
+  for (const name of names) {
+    if (!event.people.includes(name)) event.people.push(name);
+  }
+  document.getElementById("addPeopleText").value = "";
+  save();
+  render();
 }
 
 function removePerson(name) {
-  state.people = state.people.filter(p => p !== name);
-  state.expenses = state.expenses.filter(e => {
-    const payerNames = Object.keys(e.payers || {});
-    return !payerNames.includes(name) && !e.participants.includes(name);
+  const event = getCurrentEvent();
+  const used = event.expenses.some(exp => {
+    const payerUsed = Object.keys(exp.payers || {}).includes(name);
+    const participantUsed = (exp.participants || []).includes(name);
+    return payerUsed || participantUsed;
   });
+
+  if (used) {
+    return alert("Участник уже есть в расходах. Чтобы не сломать историю, сначала удали связанные расходы.");
+  }
+
+  event.people = event.people.filter(p => p !== name);
   save();
   render();
 }
 
-function getSelectedParticipants() {
-  return [...document.querySelectorAll(".participantCheck:checked")].map(i => i.value);
+function getCheckedPeople(className) {
+  return [...document.querySelectorAll("." + className + ":checked")].map(x => x.value);
 }
 
-function getPayers() {
+function getPayers(event) {
   const payers = {};
-  const rows = [...document.querySelectorAll(".payerCheck:checked")];
-
-  for (const checkbox of rows) {
-    const person = checkbox.value;
-    const input = document.querySelector(`[data-paid="${CSS.escape(person)}"]`);
-    const amount = Number(input?.value || 0);
-    if (amount > 0) payers[person] = amount;
+  for (const person of event.people) {
+    const checked = document.querySelector(`[data-payer-check="${CSS.escape(person)}"]`)?.checked;
+    const amount = Number(document.querySelector(`[data-paid="${CSS.escape(person)}"]`)?.value || 0);
+    if (checked && amount > 0) payers[person] = amount;
   }
-
   return payers;
 }
 
-function addExpense() {
-  const title = $("expenseTitle").value.trim();
-  const amount = Number($("expenseAmount").value);
-  const splitType = $("splitType").value;
-  const participants = getSelectedParticipants();
-  const payers = getPayers();
-  const paidTotal = Object.values(payers).reduce((a, b) => a + b, 0);
-
-  if (!title) return alert("Название расхода забыли. Бухгалтер грустит.");
-  if (!amount || amount <= 0) return alert("Сумма должна быть больше нуля");
-  if (!Object.keys(payers).length) return alert("Выбери, кто оплатил, и впиши суммы");
-  if (Math.round(paidTotal) !== Math.round(amount)) {
-    return alert(`Плательщики внесли ${money(paidTotal)}, а расход ${money(amount)}. Суммы должны совпадать.`);
+function getFixedShares(event) {
+  const fixed = {};
+  for (const person of event.people) {
+    const checked = document.querySelector(`[data-fixed-check="${CSS.escape(person)}"]`)?.checked;
+    const amount = Number(document.querySelector(`[data-fixed="${CSS.escape(person)}"]`)?.value || 0);
+    if (checked && amount >= 0) fixed[person] = amount;
   }
-  if (!participants.length) return alert("Выбери участников расхода");
+  return fixed;
+}
 
-  let shares = {};
+function getCustomShares(event, participants) {
+  const shares = {};
+  for (const person of participants) {
+    const amount = Number(document.querySelector(`[data-custom="${CSS.escape(person)}"]`)?.value || 0);
+    shares[person] = amount;
+  }
+  return shares;
+}
 
-  if (splitType === "equal") {
+function buildShares(event, amount, participants, splitMode) {
+  const shares = {};
+  if (!participants.length) throw new Error("Выбери участников расхода");
+
+  if (splitMode === "equal") {
     const share = amount / participants.length;
     participants.forEach(p => shares[p] = share);
-  } else {
-    let total = 0;
-    participants.forEach(p => {
-      const input = document.querySelector(`[data-share="${CSS.escape(p)}"]`);
-      const val = Number(input?.value || 0);
-      shares[p] = val;
-      total += val;
-    });
-
-    if (Math.round(total) !== Math.round(amount)) {
-      return alert(`Доли участников дают ${money(total)}, а расход ${money(amount)}. Не сходится.`);
-    }
+    return shares;
   }
 
-  state.expenses.push({
-    id: Date.now(),
+  if (splitMode === "fixed_rest") {
+    const fixed = getFixedShares(event);
+    let fixedTotal = 0;
+
+    for (const [person, value] of Object.entries(fixed)) {
+      if (!participants.includes(person)) continue;
+      shares[person] = value;
+      fixedTotal += value;
+    }
+
+    if (fixedTotal > amount) throw new Error("Фиксированные суммы больше общего расхода");
+
+    const restPeople = participants.filter(p => !(p in shares));
+    if (!restPeople.length && Math.round(fixedTotal) !== Math.round(amount)) {
+      throw new Error("Некому делить остаток. Либо добавь людей, либо исправь фиксированные суммы.");
+    }
+
+    const rest = amount - fixedTotal;
+    const restShare = restPeople.length ? rest / restPeople.length : 0;
+    restPeople.forEach(p => shares[p] = restShare);
+    return shares;
+  }
+
+  if (splitMode === "custom") {
+    const custom = getCustomShares(event, participants);
+    const total = Object.values(custom).reduce((a,b) => a + Number(b || 0), 0);
+    if (Math.round(total) !== Math.round(amount)) {
+      throw new Error(`Свои суммы дают ${money(total)}, а расход ${money(amount)}. Не сходится.`);
+    }
+    return custom;
+  }
+
+  return shares;
+}
+
+function addExpense() {
+  const event = getCurrentEvent();
+  const title = document.getElementById("expenseTitle").value.trim();
+  const amount = Number(document.getElementById("expenseAmount").value || 0);
+  const splitMode = document.querySelector('input[name="splitMode"]:checked')?.value || "equal";
+  const participants = getCheckedPeople("participantCheck");
+  const payers = getPayers(event);
+  const paidTotal = Object.values(payers).reduce((a,b) => a + Number(b || 0), 0);
+
+  if (!title) return alert("Впиши название расхода");
+  if (!amount || amount <= 0) return alert("Впиши нормальную сумму");
+  if (!Object.keys(payers).length) return alert("Укажи, кто оплатил");
+  if (Math.round(paidTotal) !== Math.round(amount)) {
+    return alert(`Плательщики внесли ${money(paidTotal)}, а расход ${money(amount)}. Должно совпадать.`);
+  }
+
+  let shares;
+  try {
+    shares = buildShares(event, amount, participants, splitMode);
+  } catch (err) {
+    return alert(err.message);
+  }
+
+  event.expenses.unshift({
+    id: uid(),
     title,
     amount,
     payers,
     participants,
+    splitMode,
     shares,
-    splitType
+    createdAt: new Date().toISOString()
   });
 
-  $("expenseTitle").value = "";
-  $("expenseAmount").value = "";
+  state.activeTab = "expenses";
   save();
   render();
 }
 
 function deleteExpense(id) {
-  state.expenses = state.expenses.filter(e => e.id !== id);
+  const event = getCurrentEvent();
+  if (!confirm("Удалить расход?")) return;
+  event.expenses = event.expenses.filter(e => e.id !== id);
   save();
   render();
 }
 
-function calculateDebts() {
+function calculateBalances(event) {
   const balances = {};
-  state.people.forEach(p => balances[p] = 0);
+  event.people.forEach(p => balances[p] = 0);
 
-  for (const e of state.expenses) {
-    for (const [person, paid] of Object.entries(e.payers || {})) {
-      balances[person] = (balances[person] || 0) + paid;
+  for (const expense of event.expenses) {
+    for (const [person, amount] of Object.entries(expense.payers || {})) {
+      balances[person] = (balances[person] || 0) + Number(amount || 0);
     }
-    for (const [person, share] of Object.entries(e.shares || {})) {
-      balances[person] = (balances[person] || 0) - share;
+    for (const [person, share] of Object.entries(expense.shares || {})) {
+      balances[person] = (balances[person] || 0) - Number(share || 0);
     }
   }
+
+  return balances;
+}
+
+function calculateSettlements(event) {
+  const balances = calculateBalances(event);
 
   const debtors = [];
   const creditors = [];
@@ -155,7 +280,11 @@ function calculateDebts() {
   while (i < debtors.length && j < creditors.length) {
     const amount = Math.min(debtors[i].amount, creditors[j].amount);
     if (amount > 0) {
-      settlements.push({ from: debtors[i].person, to: creditors[j].person, amount });
+      settlements.push({
+        from: debtors[i].person,
+        to: creditors[j].person,
+        amount
+      });
     }
 
     debtors[i].amount -= amount;
@@ -168,133 +297,323 @@ function calculateDebts() {
   return settlements;
 }
 
-function renderPeople() {
-  $("peopleList").innerHTML = state.people.length
-    ? state.people.map(p => `<div class="chip">${p}<button class="danger" onclick="removePerson('${escapeHtml(p)}')">×</button></div>`).join("")
-    : `<div class="empty">Пока никого нет. Впиши всех пачкой через запятую или с новой строки.</div>`;
+function copySummary() {
+  const event = getCurrentEvent();
+  const settlements = calculateSettlements(event);
+  const lines = [
+    `Итог по мероприятию: ${event.title}`,
+    ""
+  ];
 
-  $("payersBox").innerHTML = state.people.length
-    ? state.people.map(p => `
-      <label class="money-row">
-        <input type="checkbox" class="payerCheck" value="${escapeHtml(p)}">
-        <span>${escapeHtml(p)}</span>
-        <input type="number" data-paid="${escapeHtml(p)}" placeholder="Сколько заплатил">
-      </label>
-    `).join("")
-    : `<div class="empty">Сначала добавь участников.</div>`;
-
-  $("participantsBox").innerHTML = state.people.length
-    ? state.people.map(p => `
-      <label class="check">
-        <input type="checkbox" class="participantCheck" value="${escapeHtml(p)}" checked onchange="renderCustomShares()">
-        ${escapeHtml(p)}
-      </label>
-    `).join("")
-    : `<div class="empty">Сначала добавь участников.</div>`;
-
-  renderCustomShares();
-}
-
-function renderCustomShares() {
-  const splitType = $("splitType").value;
-  const selected = getSelectedParticipants();
-  const box = $("customShares");
-
-  if (splitType !== "custom") {
-    box.classList.add("hidden");
-    box.innerHTML = "";
-    return;
+  if (!settlements.length) {
+    lines.push("Все закрыто, долгов нет.");
+  } else {
+    settlements.forEach(s => lines.push(`${s.from} должен ${s.to}: ${money(s.amount)}`));
   }
 
-  box.classList.remove("hidden");
-  box.innerHTML = `
-    <label>Сколько должен каждый участник</label>
-    ${selected.map(p => `
-      <div class="custom-row">
-        <span>${escapeHtml(p)}</span>
-        <input type="number" data-share="${escapeHtml(p)}" placeholder="0">
-      </div>
-    `).join("")}
-  `;
-}
-
-function renderExpenses() {
-  $("expensesList").innerHTML = state.expenses.length
-    ? state.expenses.map(e => {
-      const payersText = Object.entries(e.payers || {}).map(([p, a]) => `${escapeHtml(p)}: ${money(a)}`).join(" · ");
-      const sharesText = Object.entries(e.shares || {}).map(([p, s]) => `${escapeHtml(p)}: ${money(s)}`).join(" · ");
-      return `
-        <div class="expense">
-          <div class="expense-top">
-            <div>
-              <strong>${escapeHtml(e.title)} — ${money(e.amount)}</strong>
-              <small>Платили: ${payersText}</small>
-              <small>Участники: ${e.participants.map(escapeHtml).join(", ")}</small>
-              <small>Доли: ${sharesText}</small>
-            </div>
-            <button class="danger" onclick="deleteExpense(${e.id})">Удалить</button>
-          </div>
-        </div>
-      `;
-    }).join("")
-    : `<div class="empty">Операций пока нет.</div>`;
-}
-
-function renderSettlements() {
-  const settlements = calculateDebts();
-  $("settlementsList").innerHTML = settlements.length
-    ? settlements.map(s => `<div class="settlement">${escapeHtml(s.from)} → ${escapeHtml(s.to)}: ${money(s.amount)}</div>`).join("")
-    : `<div class="empty">Пока никто никому не должен. Редкий мирный момент.</div>`;
-}
-
-function copySummary() {
-  const settlements = calculateDebts();
-  const text = settlements.length
-    ? "Итог по долгам:\n\n" + settlements.map(s => `${s.from} должен ${s.to}: ${money(s.amount)}`).join("\n")
-    : "Все закрыто, долгов нет.";
-
-  navigator.clipboard.writeText(text);
+  navigator.clipboard.writeText(lines.join("\n"));
   alert("Скопировано");
 }
 
-function selectAllParticipants(checked) {
-  document.querySelectorAll(".participantCheck").forEach(i => i.checked = checked);
-  renderCustomShares();
+function setTab(tab) {
+  state.activeTab = tab;
+  save();
+  render();
 }
 
-function escapeHtml(str) {
-  return String(str).replace(/[&<>"']/g, m => ({
-    "&": "&amp;",
-    "<": "&lt;",
-    ">": "&gt;",
-    '"': "&quot;",
-    "'": "&#039;"
-  }[m]));
+function renderEventsScreen() {
+  $root.innerHTML = `
+    <section class="card">
+      <h2>Новое мероприятие</h2>
+      <label>Название</label>
+      <input id="eventTitle" placeholder="Пятница, ДР, Грузия, шашлыки..." />
+      <label>Участники сразу пачкой</label>
+      <textarea id="eventPeople" placeholder="Рома, Паша, Артем&#10;или каждый с новой строки"></textarea>
+      <button onclick="createEvent()">Создать мероприятие</button>
+    </section>
+
+    <section class="card">
+      <h2>Мероприятия</h2>
+      <div class="grid">
+        ${state.events.length ? state.events.map(e => `
+          <div class="event-card">
+            <div class="expense-top">
+              <div onclick="openEvent('${e.id}')" style="flex:1">
+                <strong>${escapeHtml(e.title)}</strong>
+                <p>${e.people.length} участников · ${e.expenses.length} расходов</p>
+              </div>
+              <button class="delete-btn" onclick="event.stopPropagation(); deleteEvent('${e.id}')">Удалить</button>
+            </div>
+          </div>
+        `).join("") : `<div class="empty">Пока мероприятий нет. Создай первое — и бухгалтерский ад начнет отступать.</div>`}
+      </div>
+    </section>
+  `;
 }
 
-function render() {
-  renderPeople();
-  renderExpenses();
-  renderSettlements();
+function renderEventScreen() {
+  const event = getCurrentEvent();
+  if (!event) return goEvents();
+
+  document.getElementById("subtitle").textContent = event.title;
+
+  $root.innerHTML = `
+    <section class="card">
+      <div class="row wrap" style="justify-content:space-between">
+        <div>
+          <h2>${escapeHtml(event.title)}</h2>
+          <p>${event.people.length} участников · ${event.expenses.length} расходов</p>
+        </div>
+        <button class="ghost" onclick="goEvents()">← Мероприятия</button>
+      </div>
+    </section>
+
+    <div class="tabs">
+      <button class="tab ${state.activeTab === "expenses" ? "active" : ""}" onclick="setTab('expenses')">Расходы</button>
+      <button class="tab ${state.activeTab === "people" ? "active" : ""}" onclick="setTab('people')">Участники</button>
+      <button class="tab ${state.activeTab === "summary" ? "active" : ""}" onclick="setTab('summary')">Итог</button>
+    </div>
+
+    ${state.activeTab === "expenses" ? renderExpensesTab(event) : ""}
+    ${state.activeTab === "people" ? renderPeopleTab(event) : ""}
+    ${state.activeTab === "summary" ? renderSummaryTab(event) : ""}
+  `;
+
+  if (state.activeTab === "expenses") {
+    attachExpenseFormEvents();
+    renderSplitModeFields();
+  }
 }
 
-$("addPeopleBtn").onclick = () => addPeople($("peopleInput").value);
-$("peopleInput").addEventListener("keydown", (e) => {
-  if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
-    addPeople($("peopleInput").value);
+function renderPeopleTab(event) {
+  return `
+    <section class="card">
+      <h2>Участники</h2>
+      <label>Добавить участников пачкой</label>
+      <textarea id="addPeopleText" placeholder="Вова, Ринат, Пряник&#10;или каждый с новой строки"></textarea>
+      <button onclick="addPeopleToCurrent()">Добавить</button>
+
+      <div class="chips">
+        ${event.people.length ? event.people.map(p => `
+          <div class="chip">${escapeHtml(p)} <button onclick="removePerson('${escapeHtml(p)}')">×</button></div>
+        `).join("") : `<div class="empty">Пока участников нет.</div>`}
+      </div>
+    </section>
+  `;
+}
+
+function renderExpensesTab(event) {
+  return `
+    <section class="card">
+      <h2>Добавить расход</h2>
+
+      ${!event.people.length ? `<div class="notice">Сначала добавь участников во вкладке “Участники”.</div>` : ""}
+
+      <label>Название</label>
+      <input id="expenseTitle" placeholder="Мак, ресторан, нос, бензин..." />
+
+      <label>Общая сумма</label>
+      <input id="expenseAmount" type="number" placeholder="3500" />
+
+      <h3>Кто платил</h3>
+      <p class="muted">Можно несколько человек. Сумма плательщиков должна совпасть с общей суммой.</p>
+      <div class="grid" id="payersBox">
+        ${event.people.map(p => `
+          <label class="money-row">
+            <input type="checkbox" data-payer-check="${escapeHtml(p)}">
+            <span>${escapeHtml(p)}</span>
+            <input type="number" data-paid="${escapeHtml(p)}" placeholder="Заплатил">
+          </label>
+        `).join("")}
+      </div>
+
+      <h3 style="margin-top:16px">Кто участвовал</h3>
+      <p class="muted">По умолчанию все. Сними тех, кто не участвовал конкретно в этом расходе.</p>
+      <div class="mini-actions">
+        <button class="small secondary" id="selectAllParticipants">Выбрать всех</button>
+        <button class="small ghost" id="clearAllParticipants">Снять всех</button>
+      </div>
+      <div class="grid" id="participantsBox">
+        ${event.people.map(p => `
+          <label class="check-row">
+            <input type="checkbox" class="participantCheck" value="${escapeHtml(p)}" checked>
+            <span>${escapeHtml(p)}</span>
+          </label>
+        `).join("")}
+      </div>
+
+      <h3 style="margin-top:16px">Как разделить расход?</h3>
+      <div class="grid">
+        <label class="check-row">
+          <input type="radio" name="splitMode" value="equal" checked>
+          <span>🟢 Поровну между выбранными</span>
+        </label>
+        <label class="check-row">
+          <input type="radio" name="splitMode" value="fixed_rest">
+          <span>🟡 Фиксированные суммы, остаток поровну</span>
+        </label>
+        <label class="check-row">
+          <input type="radio" name="splitMode" value="custom">
+          <span>🔵 Своя сумма каждому</span>
+        </label>
+      </div>
+
+      <div id="splitModeFields"></div>
+
+      <button onclick="addExpense()" style="margin-top:16px">Добавить расход</button>
+    </section>
+
+    <section class="card">
+      <h2>Операции</h2>
+      <div class="grid">
+        ${event.expenses.length ? event.expenses.map(exp => renderExpenseCard(exp)).join("") : `<div class="empty">Расходов пока нет. Добавь первый — и пункт “Итог” оживет.</div>`}
+      </div>
+    </section>
+  `;
+}
+
+function renderExpenseCard(exp) {
+  const payersText = Object.entries(exp.payers || {}).map(([p,a]) => `${escapeHtml(p)}: ${money(a)}`).join(" · ");
+  const sharesText = Object.entries(exp.shares || {}).map(([p,a]) => `${escapeHtml(p)}: ${money(a)}`).join(" · ");
+  const modeName = {
+    equal: "Поровну",
+    fixed_rest: "Фиксированные + остаток поровну",
+    custom: "Своя сумма каждому"
+  }[exp.splitMode] || exp.splitMode;
+
+  return `
+    <div class="expense-card">
+      <div class="expense-top">
+        <div>
+          <strong>${escapeHtml(exp.title)} — ${money(exp.amount)}</strong>
+          <small>Платили: ${payersText}</small>
+          <small>Деление: ${modeName}</small>
+          <small>Участники: ${(exp.participants || []).map(escapeHtml).join(", ")}</small>
+          <small>Доли: ${sharesText}</small>
+        </div>
+        <button class="delete-btn" onclick="deleteExpense('${exp.id}')">Удалить</button>
+      </div>
+    </div>
+  `;
+}
+
+function renderSummaryTab(event) {
+  const balances = calculateBalances(event);
+  const settlements = calculateSettlements(event);
+
+  return `
+    <section class="card">
+      <h2>Кто кому должен</h2>
+      <div class="grid">
+        ${settlements.length ? settlements.map(s => `
+          <div class="settlement">${escapeHtml(s.from)} → ${escapeHtml(s.to)}: ${money(s.amount)}</div>
+        `).join("") : `<div class="empty">Пока никто никому не должен.</div>`}
+      </div>
+      <button class="secondary" style="margin-top:14px" onclick="copySummary()">Скопировать итог в Telegram</button>
+    </section>
+
+    <section class="card">
+      <h2>Баланс по людям</h2>
+      ${Object.entries(balances).map(([person, balance]) => `
+        <div class="summary-line">
+          <span>${escapeHtml(person)}</span>
+          <strong>${money(balance)}</strong>
+        </div>
+      `).join("")}
+      <p style="margin-top:12px">Плюс — человеку должны. Минус — человек должен.</p>
+    </section>
+  `;
+}
+
+function attachExpenseFormEvents() {
+  document.querySelectorAll('input[name="splitMode"]').forEach(r => {
+    r.addEventListener("change", renderSplitModeFields);
+  });
+
+  document.querySelectorAll(".participantCheck").forEach(c => {
+    c.addEventListener("change", renderSplitModeFields);
+  });
+
+  document.getElementById("selectAllParticipants")?.addEventListener("click", () => {
+    document.querySelectorAll(".participantCheck").forEach(c => c.checked = true);
+    renderSplitModeFields();
+  });
+
+  document.getElementById("clearAllParticipants")?.addEventListener("click", () => {
+    document.querySelectorAll(".participantCheck").forEach(c => c.checked = false);
+    renderSplitModeFields();
+  });
+}
+
+function renderSplitModeFields() {
+  const event = getCurrentEvent();
+  const box = document.getElementById("splitModeFields");
+  if (!box || !event) return;
+
+  const mode = document.querySelector('input[name="splitMode"]:checked')?.value || "equal";
+  const participants = getCheckedPeople("participantCheck");
+
+  if (mode === "equal") {
+    box.innerHTML = `
+      <div class="notice">
+        Все выбранные участники делят расход поровну.
+      </div>
+    `;
+    return;
+  }
+
+  if (mode === "fixed_rest") {
+    box.innerHTML = `
+      <div class="notice">
+        Впиши фиксированные суммы тем, кто ел/участвовал иначе. Остаток автоматически разделится поровну между остальными выбранными.
+      </div>
+      <div class="grid">
+        ${participants.map(p => `
+          <label class="fixed-row">
+            <input type="checkbox" data-fixed-check="${escapeHtml(p)}">
+            <span>${escapeHtml(p)}</span>
+            <input type="number" data-fixed="${escapeHtml(p)}" placeholder="Фикс сумма">
+          </label>
+        `).join("") || `<div class="empty">Выбери участников выше.</div>`}
+      </div>
+    `;
+    return;
+  }
+
+  if (mode === "custom") {
+    box.innerHTML = `
+      <div class="notice">
+        Впиши точную сумму каждому. Общая сумма должна совпасть с расходом.
+      </div>
+      <div class="grid">
+        ${participants.map(p => `
+          <label class="fixed-row">
+            <span></span>
+            <span>${escapeHtml(p)}</span>
+            <input type="number" data-custom="${escapeHtml(p)}" placeholder="Доля">
+          </label>
+        `).join("") || `<div class="empty">Выбери участников выше.</div>`}
+      </div>
+    `;
+  }
+}
+
+document.getElementById("resetBtn").addEventListener("click", () => {
+  if (confirm("Стереть все данные BroSplit v3?")) {
+    localStorage.removeItem(STORAGE_KEY);
+    state = JSON.parse(JSON.stringify(defaultState));
+    render();
   }
 });
-$("addExpenseBtn").onclick = addExpense;
-$("copyBtn").onclick = copySummary;
-$("splitType").onchange = renderCustomShares;
-$("selectAllBtn").onclick = () => selectAllParticipants(true);
-$("clearAllBtn").onclick = () => selectAllParticipants(false);
-$("resetBtn").onclick = () => {
-  if (confirm("Точно все стереть?")) {
-    localStorage.removeItem("brosplit_state_v2");
-    location.reload();
+
+function render() {
+  if (state.screen === "events") {
+    document.getElementById("subtitle").textContent = "Анти-Паша-машина v3";
+    renderEventsScreen();
+  } else {
+    renderEventScreen();
   }
-};
+}
 
 if ("serviceWorker" in navigator) {
   navigator.serviceWorker.register("./sw.js");
