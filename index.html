@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>BroSplit</title>
+  <link rel="manifest" href="manifest.json">
+  <link rel="stylesheet" href="styles.css" />
+  <meta name="theme-color" content="#111827">
+</head>
+<body>
+  <div class="app">
+    <header>
+      <div>
+        <h1>BroSplit</h1>
+        <p>Считай долги без ада в чате</p>
+      </div>
+      <button id="resetBtn" class="ghost">Сброс</button>
+    </header>
+
+    <section class="card">
+      <h2>1. Участники</h2>
+      <div class="row">
+        <input id="personInput" placeholder="Имя: Рома, Паша, Артем..." />
+        <button id="addPersonBtn">Добавить</button>
+      </div>
+      <div id="peopleList" class="chips"></div>
+    </section>
+
+    <section class="card">
+      <h2>2. Добавить расход</h2>
+
+      <label>Название</label>
+      <input id="expenseTitle" placeholder="Мак, ресторан, травка, нос..." />
+
+      <label>Сумма</label>
+      <input id="expenseAmount" type="number" placeholder="3500" />
+
+      <label>Кто оплатил</label>
+      <select id="payerSelect"></select>
+
+      <label>Кто участвовал</label>
+      <div id="participantsBox" class="checklist"></div>
+
+      <label>Тип деления</label>
+      <select id="splitType">
+        <option value="equal">Поровну</option>
+        <option value="custom">Своя сумма каждому</option>
+      </select>
+
+      <div id="customShares" class="custom-shares hidden"></div>
+
+      <button id="addExpenseBtn" class="full">Добавить расход</button>
+    </section>
+
+    <section class="card">
+      <h2>3. Операции</h2>
+      <div id="expensesList" class="list"></div>
+    </section>
+
+    <section class="card result">
+      <h2>4. Кто кому должен</h2>
+      <div id="settlementsList" class="settlements"></div>
+      <button id="copyBtn" class="full secondary">Скопировать итог</button>
+    </section>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
